@@ -4,18 +4,19 @@
 Runs the ViG GNN from models/GNN/GNN_inference_run.ipynb on held-out parquet maps at FIXED
 sampling densities, with the SAME saved sample masks every run, and writes:
 
-  <out>/per_sample.csv   one row per (map, density): dB errors, emitter error, latency
-  <out>/summary.csv      per density: mean + 95% bootstrap CI, p50/p95/p99 latency
-  <out>/masks/*.npz      the sample masks (reused on the next run, so runs are comparable)
-  <out>/tegrastats.log   power/RAM log while the timing runs (Jetson only)
-  <out>/run_info.json    device, JetPack, torch version, settings
+  <out>/per_sample_<tag>.csv  one row per (map, density): dB errors, emitter error
+  <out>/summary_<tag>.csv     per density: mean + 95% bootstrap CI
+  <out>/run_info_<tag>.json   device, JetPack, torch version, settings, latency p50/p95/p99, RAM, power
+  <out>/masks/*.npz           the sample masks (reused on the next run, so runs are comparable)
+  <out>/tegrastats.log        power/RAM log while the timing runs (Jetson only)
+<tag> is e.g. fp16_notx_uniform.
 
 Metrics are computed on pixels the model had to infer: not sampled, and (by default) not
 inside buildings. Emitter error = distance between the strongest predicted pixel (lowest path
 loss) and the true tx_origin.
 
 Example (on the Jetson, from the repo root):
-    python3 benchmark_reconstruction.py --weights benchmarks/GNN_no_tx.pth \
+    python3 benchmarks/benchmark_reconstruction.py --weights benchmarks/GNN_no_tx.pth \
         --test-dir data/gnn_inference_test --out-dir benchmarks/gnn_bench --fp16
 """
 import argparse, glob, json, os, platform, resource, shutil, subprocess, time, zlib
