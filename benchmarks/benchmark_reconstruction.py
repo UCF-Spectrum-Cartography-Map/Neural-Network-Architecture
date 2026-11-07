@@ -18,6 +18,9 @@ loss) and the true tx_origin.
 Example (on the Jetson, from the repo root):
     python3 benchmarks/benchmark_reconstruction.py --weights benchmarks/GNN_no_tx.pth \
         --test-dir data/gnn_inference_test --out-dir benchmarks/gnn_bench --fp16
+TensorRT engine built with trtexec (tag trt_notx_uniform):
+    python3 benchmarks/benchmark_reconstruction.py --engine engines/GNN.engine \
+        --test-dir data/gnn_inference_test --out-dir benchmarks/gnn_bench
 """
 import argparse, glob, json, os, platform, resource, shutil, subprocess, time, zlib
 
@@ -153,6 +156,32 @@ def load_model(path, device):
     return model.to(device).eval()
 
 
+class TRTEngine:
+    """TensorRT .engine (built on this Jetson) with the same call signature as the PyTorch model.
+    Input/output buffers are torch CUDA tensors, so this needs the tensorrt Python package next to torch."""
+
+    def __init__(self, path):
+        import tensorrt as trt
+        self.trt = trt
+        with open(path, "rb") as f:
+            self.engine = trt.Runtime(trt.Logger(trt.Logger.WARNING)).deserialize_cuda_engine(f.read())
+        self.ctx = self.engine.create_execution_context()
+        names = [self.engine.get_tensor_name(i) for i in range(self.engine.num_io_tensors)]
+        self.inp = next(n for n in names if self.engine.get_tensor_mode(n) == trt.TensorIOMode.INPUT)
+        self.outn = next(n for n in names if self.engine.get_tensor_mode(n) == trt.TensorIOMode.OUTPUT)
+        self.out = torch.empty(tuple(self.engine.get_tensor_shape(self.outn)), dtype=torch.float32, device="cuda")
+
+    def __call__(self, x):
+        x = x.contiguous().float()
+        self.ctx.set_tensor_address(self.inp, x.data_ptr())
+        self.ctx.set_tensor_address(self.outn, self.out.data_ptr())
+        self.ctx.execute_async_v3(torch.cuda.current_stream().cuda_stream)
+        return self.out.clone()
+
+    def parameters(self):
+        return []
+
+
 # ---------------------------------------------------------------- data + masks
 def load_map(path):
     row = pd.read_parquet(path, engine="pyarrow").iloc[0]
@@ -174,9 +203,11 @@ def make_mask(density, env, rng, kind, avoid_buildings):
         return mask
     free = np.argwhere(allowed)
     r, c = free[rng.integers(len(free))]
-    steps = 0
-    while mask.sum() < n and steps < 50 * n:
-        mask[r, c] = True
+    steps = count = 0
+    while count < n and steps < 50 * n:
+        if not mask[r, c]:
+            mask[r, c] = True
+            count += 1
         dr, dc = [(0, 1), (0, -1), (1, 0), (-1, 0)][rng.integers(4)]
         nr, nc = r + dr, c + dc
         if 0 <= nr < H and 0 <= nc < W and allowed[nr, nc]:
@@ -305,6 +336,7 @@ def main():
     ap.add_argument("--hit-radius-m", type=float, default=5.0, help="emitter counts as found within this distance")
     ap.add_argument("--max-files", type=int, default=None)
     ap.add_argument("--fp16", action="store_true", help="autocast fp16 on CUDA")
+    ap.add_argument("--engine", default=None, help="score a TensorRT .engine instead of --weights (precision is set at build time)")
     ap.add_argument("--warmup", type=int, default=50)
     ap.add_argument("--timed-iters", type=int, default=500, help="timed forward passes for the latency stats")
     ap.add_argument("--seed", type=int, default=0)
@@ -319,8 +351,13 @@ def main():
     files = sorted(glob.glob(os.path.join(args.test_dir, "*.parquet")))[:args.max_files]
     if not files:
         raise SystemExit(f"No .parquet files in {args.test_dir}")
-    model = load_model(args.weights, device)
-    tag = f"{'fp16' if args.fp16 else 'fp32'}_{'tx' if args.use_tx else 'notx'}_{args.mask_kind}"
+    if args.engine:
+        model, args.fp16 = TRTEngine(args.engine), False
+        precision = "trt"
+    else:
+        model = load_model(args.weights, device)
+        precision = "fp16" if args.fp16 else "fp32"
+    tag = f"{precision}_{'tx' if args.use_tx else 'notx'}_{args.mask_kind}"
     print(f"{len(files)} maps x {len(args.densities)} densities | {device} | {tag}")
 
     # ---- 1. accuracy: every (map, density) once, same masks every run
