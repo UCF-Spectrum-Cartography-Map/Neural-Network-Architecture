@@ -17,12 +17,15 @@ All final speed numbers are measured on the Jetson, since Colab (T4) and laptop 
 | `README_Jetson_Setup.md` | Setting up PyTorch on the Jetson and running the GNN there |
 | `benchmark_reconstruction.py` | GNN benchmark: accuracy at fixed sampling densities, latency, RAM, power |
 | `GNN_no_tx.pth` | GNN weights trained with the emitter channel zeroed (Oct 21) |
+| `../models/GNN/GNN_no_tx_ver.ipynb` | Training notebook for `GNN_no_tx.pth` (emitter channel zeroed); `GNN_patch_and_parquet_ver.ipynb` in the same folder is the prior team's version, which still feeds the emitter location |
 | `pth_to_onnx.py`, `onnx_to_engine.py` | Prior team's ONNX and TensorRT conversion (expects `GNN_best.pth`, see below) |
 | `models_radiomap.py` | Prior team's model definitions, used by the conversion scripts |
 | `archive/` | Prior team's multi-model benchmark (`ablation_inference_benchmark.py`, `README.md`) and its old results |
 | `../data/gnn_inference_test/` | Held-out test maps (`.parquet`) |
 
 ## Before every Jetson run
+
+These commands run on the Jetson host, outside the container, because `sudo` and `tegrastats` are not available inside it (see [README_Jetson_Setup.md](README_Jetson_Setup.md)):
 
 ```bash
 sudo nvpmodel -q          # records the power mode; the same mode is used for every run
@@ -77,7 +80,7 @@ The script writes one set of outputs per run tag (for example `fp16_notx_uniform
 - `tegrastats.log`: raw power and RAM log
 - `masks/`: saved sample masks, reused so every run sees the same samples
 
-**Test data:** the full benchmark uses 200 or more maps that were never used in training (the dataset's test split), plus a set of the team's own Sionna campus maps as a generalization check. The 10 maps in `data/gnn_inference_test/` serve only as a smoke test.
+**Test data:** the full benchmark uses 200 or more maps that were never used in training (the dataset's test split), plus a set of the team's own Sionna campus maps as a generalization check. The 10 maps in `data/gnn_inference_test/` serve only as a smoke test. Unzipping and running the full test split is covered in [README_Jetson_Setup.md](README_Jetson_Setup.md).
 
 ### TensorRT
 
@@ -144,14 +147,47 @@ Proposed budgets (pending agreement with the mentor):
 | GNN map update | p99 ≤ 200 ms |
 | Whole stack RAM on the Orin Nano 8 GB | ≤ 6 GB |
 
-## Results to report
+## Results
 
-| GNN setting | RMSE dB @ 1 % / 5 % (95 % CI) | Emitter error m | p50 / p99 ms | Peak RAM MB | Power W |
-| --- | --- | --- | --- | --- | --- |
-| PyTorch FP32, no tx | | | | | |
-| PyTorch FP16, no tx | | | | | |
-| TensorRT FP16, no tx | | | | | |
-| FP32, with tx (reference) | | | | | |
+### GNN, Jetson Orin Nano 8 GB (2026-11-06)
+
+Setup: `GNN_no_tx.pth`, PyTorch FP16, emitter channel zeroed, 200 held-out test-split maps, uniform random samples, 25 W power mode with `jetson_clocks`. Errors are on unobserved, non-building pixels; CIs are 95 % bootstrap intervals over maps. Emitter error assumes 1 m per pixel.
+
+| Samples | RMSE dB (95 % CI) | Pixels within 6 dB | Emitter error m | Emitter within 5 m |
+| --- | --- | --- | --- | --- |
+| 0.5 % | 19.25 (19.16–19.34) | 23 % | 10.0 | 26 % |
+| 1 % | 17.54 (17.44–17.63) | 34 % | 7.4 | 31 % |
+| 2 % | 15.00 (14.89–15.10) | 48 % | 5.6 | 48 % |
+| 5 % | 11.45 (11.33–11.58) | 64 % | 4.7 | 62 % |
+| 10 % | 10.25 (10.12–10.37) | 68 % | 4.1 | 71 % |
+
+| On-device | Value |
+| --- | --- |
+| Latency p50 / p99 | 14.8 / 20.9 ms (65 maps/s) |
+| Power, mean / max during the run | 7.9 / 12.0 W (about 0.18 J per map at max power) |
+| Peak system RAM (whole Jetson) | 3.6 GB of 8 GB |
+| Model GPU memory | 31 MB |
+
+The GNN runs about 10× under the 200 ms budget. Map quality improves steadily with sampling density, and the emitter is located within 5 m in 71 % of maps at 10 % samples.
+
+### GNN, other settings (same 200 maps and hardware, 2026-11-06)
+
+| GNN setting | RMSE dB @ 1 % / 5 % (95 % CI) | Emitter error m @ 1 % / 5 % | Emitter within 5 m @ 10 % | p50 / p99 ms | Power mean / max W | Peak RAM GB |
+| --- | --- | --- | --- | --- | --- | --- |
+| FP16, no tx, uniform samples (main run above) | 17.54 (17.44–17.63) / 11.45 (11.33–11.58) | 7.4 / 4.7 | 71 % | 14.8 / 20.9 | 7.9 / 12.0 | 3.6 |
+| FP32, no tx, uniform samples | 17.54 (17.44–17.63) / 11.45 (11.33–11.58) | 7.5 / 4.8 | 69 % | 14.6 / 17.9 | 9.2 / 13.7 | 3.4 |
+| FP16, with tx, uniform samples (reference) | 17.63 (17.54–17.72) / 11.51 (11.39–11.65) | 9.5 / 6.8 | 39 % | 14.7 / 15.1 | 8.8 / 11.5 | 3.5 |
+| FP16, no tx, walk-shaped samples | 21.10 (21.00–21.20) / 20.28 (20.17–20.38) | 63.7 / 27.3 | 26 % | 14.3 / 14.9 | 7.9 / 12.4 | 3.6 |
+| TensorRT FP16 engine, no tx (`trtexec`, engine only) | not scored | | | 77.5 / 82.4 | | |
+| TensorRT FP32 engine, no tx (`trtexec`, engine only) | not scored | | | 80.4 / 84.8 | | |
+
+- **FP32 vs FP16:** same accuracy and same speed. The model is small (31 MB of GPU memory), so half precision gives no speedup in PyTorch; TensorRT is the remaining option for a faster GNN.
+- **TensorRT:** the engine builds on TensorRT 10.3 (after fixing the missing LayerNorm in `models_radiomap.py` and calling `trtexec` directly, since `onnx_to_engine.py` passes `--shapes`, which TensorRT 10 rejects for a static model), but it is about 5× slower than PyTorch (77.5 ms vs 14.8 ms p50). A `trtexec` layer profile shows why: the kNN distance computation in each of the 4 ViG blocks takes about 23 ms (96 % of engine time), because TensorRT runs it as an elementwise operation over all 1,024 × 1,024 patch pairs; every other layer together takes under 4 ms. The GNN is therefore deployed with PyTorch.
+- **With tx:** map error is unchanged (within 0.1 dB), which confirms the model ignores the emitter channel. Feeding a non-zero emitter pixel makes localization worse, because the model never saw one in training, so the channel stays zeroed at deployment.
+- **Walk-shaped samples** (contiguous paths, as a driving rover collects them) are much harder: error stays near 20 dB and improves slowly with more samples. Part of this is inherent, since a path leaves large areas unobserved, and part is that the model was trained only on scattered samples. Fine-tuning with path-shaped sample masks is the main next step for the GNN.
+- Power and RAM come from a `tegrastats` log covering each whole run (one log per run). Peak RAM is for the whole Jetson, including the desktop.
+
+### YOLO26n
 
 | YOLO26n version | COCO mAP50-95 | Rover recall 0–3 / 3–6 / 6+ m | Depth MAE m | p50 / p99 ms | RAM MB | Power W |
 | --- | --- | --- | --- | --- | --- | --- |
