@@ -450,7 +450,9 @@ class PatchEmbed(nn.Module):
 
     def forward(self, x):
         x = self.proj(x)
-        return x
+        B, E, n_h, n_w = x.shape
+        x = self.norm(x.flatten(2).transpose(1, 2))  # LayerNorm over channels, as in training
+        return x.transpose(1, 2).reshape(B, E, n_h, n_w)
 
 
 class PatchUnembed(nn.Module):
