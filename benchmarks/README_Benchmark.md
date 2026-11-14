@@ -27,15 +27,7 @@ All final speed numbers are measured on the Jetson, since Colab (T4) and laptop 
 
 ## Before every Jetson run
 
-These commands run on the Jetson host (see [README_Jetson_Setup.md](README_Jetson_Setup.md)):
-
-```bash
-sudo nvpmodel -q          # records the power mode; the same mode is used for every run
-sudo jetson_clocks        # locks clocks so timings are repeatable
-cat /etc/nv_tegra_release # records the JetPack / L4T version
-```
-
-On the Jetson Orin 32 GB (JetPack 7.2) every run takes place directly on the host with PyTorch installed by pip; `run_benchmarks_orin.sh` does the setup, the power-mode record, `jetson_clocks` and all four runs. On the Orin Nano 8 GB (JetPack 6) the runs took place inside the `l4t-pytorch` container. Other heavy programs are closed except during the concurrency test.
+Setup (PyTorch, test maps, ROS) is in [README_Jetson_Setup.md](README_Jetson_Setup.md). Every timed run records the power mode (`sudo nvpmodel -q`) and the JetPack version (`cat /etc/nv_tegra_release`), and locks clocks with `sudo jetson_clocks`; `run_benchmarks_orin.sh` does all three. Other heavy programs are closed except during the concurrency test.
 
 ## 1. GNN reconstruction
 
