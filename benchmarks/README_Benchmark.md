@@ -16,6 +16,8 @@ All final speed numbers are measured on the Jetson, since Colab (T4) and laptop 
 | --- | --- |
 | `README_Jetson_Setup.md` | Setting up PyTorch on the Jetson and running the GNN there |
 | `benchmark_reconstruction.py` | GNN benchmark: accuracy at fixed sampling densities, latency, RAM, power |
+| `run_benchmarks_orin.sh` | Runs the four standard GNN benchmark settings on the Jetson host in one go and prints the result tables |
+| `teg_summary.py` | Power and RAM summary from a `tegrastats` log (handles both Jetson power-rail layouts) |
 | `GNN_no_tx.pth` | GNN weights trained with the emitter channel zeroed (Oct 21) |
 | `../models/GNN/GNN_no_tx_ver.ipynb` | Training notebook for `GNN_no_tx.pth` (emitter channel zeroed); `GNN_patch_and_parquet_ver.ipynb` in the same folder is the prior team's version, which still feeds the emitter location |
 | `pth_to_onnx.py`, `onnx_to_engine.py` | Prior team's ONNX and TensorRT conversion (expects `GNN_best.pth`, see below) |
@@ -25,7 +27,7 @@ All final speed numbers are measured on the Jetson, since Colab (T4) and laptop 
 
 ## Before every Jetson run
 
-These commands run on the Jetson host, outside the container, because `sudo` and `tegrastats` are not available inside it (see [README_Jetson_Setup.md](README_Jetson_Setup.md)):
+These commands run on the Jetson host (see [README_Jetson_Setup.md](README_Jetson_Setup.md)):
 
 ```bash
 sudo nvpmodel -q          # records the power mode; the same mode is used for every run
@@ -33,7 +35,7 @@ sudo jetson_clocks        # locks clocks so timings are repeatable
 cat /etc/nv_tegra_release # records the JetPack / L4T version
 ```
 
-All runs take place inside the `l4t-pytorch` container (see [README_Jetson_Setup.md](README_Jetson_Setup.md)), with other heavy programs closed except during the concurrency test.
+On the Jetson Orin 32 GB (JetPack 7.2) every run takes place directly on the host with PyTorch installed by pip; `run_benchmarks_orin.sh` does the setup, the power-mode record, `jetson_clocks` and all four runs. On the Orin Nano 8 GB (JetPack 6) the runs took place inside the `l4t-pytorch` container. Other heavy programs are closed except during the concurrency test.
 
 ## 1. GNN reconstruction
 
@@ -43,7 +45,7 @@ The model never gets the emitter location (channel 1 is always zeros), the same 
 
 - **RMSE / MAE in dB**, only on pixels the model had to infer (not sampled, not inside buildings)
 - **% of pixels within 3 dB and 6 dB**
-- **Emitter-localization error (m)** and **hit rate** (under 5 m): strongest predicted pixel vs the true emitter
+- **Emitter-localization error (m)** and **hit rate** (within 3 px, 10.56 m): strongest predicted pixel vs the true emitter
 - **Latency p50 / p95 / p99**, FPS, peak RAM, power and energy per map
 
 ### Run
@@ -69,7 +71,8 @@ The main options are:
 | `--densities 0.5 1 2 5 10` | % of pixels given as samples (default) |
 | `--mask-kind walk` | samples along driving paths instead of random pixels |
 | `--avoid-buildings` | never place samples inside buildings |
-| `--m-per-px 1.0` | map resolution, for the emitter error in meters |
+| `--m-per-px 3.52` | map resolution, for the emitter error in meters (the UCF dataset maps cover 900 m in 256 px) |
+| `--hit-radius-m 10.56` | an emitter estimate within this distance counts as a hit (3 px) |
 | `--timed-iters 500` | timed runs for the latency statistics |
 
 The script writes one set of outputs per run tag (for example `fp16_notx_uniform`) to `--out-dir`:
@@ -77,7 +80,7 @@ The script writes one set of outputs per run tag (for example `fp16_notx_uniform
 - `summary_<tag>.csv`: per density, the mean and 95 % bootstrap CI
 - `per_sample_<tag>.csv`: one row per map and density
 - `run_info_<tag>.json`: device, versions, latency, RAM and power
-- `tegrastats.log`: raw power and RAM log
+- `tegrastats_<tag>.log`: raw power and RAM log covering the timed runs
 - `masks/`: saved sample masks, reused so every run sees the same samples
 
 **Test data:** the full benchmark uses 200 or more maps that were never used in training (the dataset's test split), plus a set of the team's own Sionna campus maps as a generalization check. The 10 maps in `data/gnn_inference_test/` serve only as a smoke test. Unzipping and running the full test split is covered in [README_Jetson_Setup.md](README_Jetson_Setup.md).
@@ -135,7 +138,7 @@ The metrics are:
 3. **Percentiles:** p50 / p95 / p99 latency is reported, not just the mean.
 4. **Two timings:** engine only (`trtexec`), and end to end through the team's pipeline (pre/post-processing included).
 5. **RAM:** the Orin shares memory between CPU and GPU, so peak used RAM comes from `tegrastats`, not GPU memory.
-6. **Power:** `VDD_IN` from `tegrastats`, with energy per inference = W × s.
+6. **Power:** total input power from `tegrastats` (`VDD_IN` where the board reports it, otherwise the sum of `VDD_GPU_SOC`, `VDD_CPU_CV` and `VIN_SYS_5V0`), with energy per inference = W × s. The two readings are not directly comparable between boards.
 7. **Thermal soak:** a 10-minute continuous run checks that p95 latency does not drift up.
 8. **Concurrency:** GNN + YOLO + depth + PPO + ROS run together, and the latency under load and total RAM are reported.
 
@@ -145,15 +148,55 @@ Proposed budgets (pending agreement with the mentor):
 | --- | --- |
 | YOLO26n end to end | ≥ 15 FPS, p99 ≤ 100 ms |
 | GNN map update | p99 ≤ 200 ms |
-| Whole stack RAM on the Orin Nano 8 GB | ≤ 6 GB |
+| Whole stack RAM on the Orin Nano 8 GB | ≤ 6 GB (no longer binding on the Orin 32 GB) |
 
 ## Results
 
+### GNN accuracy (200 held-out test-split maps)
+
+Setup: `GNN_no_tx.pth`, emitter channel zeroed, uniform random samples. Errors are on unobserved, non-building pixels; CIs are 95 % bootstrap intervals over maps. Maps are 3.52 m per pixel (900 m in 256 px), and an emitter estimate within 3 px (10.56 m) counts as a hit. Accuracy is the same on every device and power mode tested (Orin Nano 8 GB and Orin 32 GB, FP16 and FP32, within 0.1 dB); the table is from the Orin 32 GB FP16 run on 2026-11-13.
+
+| Samples | RMSE dB (95 % CI) | Pixels within 6 dB | Emitter error m | Emitter within 10.56 m |
+| --- | --- | --- | --- | --- |
+| 0.5 % | 19.25 (19.16–19.34) | 23 % | 35.3 | 10 % |
+| 1 % | 17.54 (17.44–17.63) | 34 % | 26.1 | 14 % |
+| 2 % | 15.00 (14.89–15.10) | 48 % | 19.9 | 20 % |
+| 5 % | 11.45 (11.33–11.58) | 64 % | 16.6 | 31 % |
+| 10 % | 10.25 (10.12–10.37) | 68 % | 14.6 | 34 % |
+
+Other settings (same maps):
+
+| GNN setting | RMSE dB @ 1 % / 5 % (95 % CI) | Emitter error m @ 1 % / 5 % | Emitter within 10.56 m @ 10 % |
+| --- | --- | --- | --- |
+| FP16, no tx, uniform samples (main run above) | 17.54 (17.44–17.63) / 11.45 (11.33–11.58) | 26.1 / 16.6 | 34 % |
+| FP32, no tx, uniform samples | 17.54 (17.44–17.63) / 11.45 (11.33–11.58) | 26.3 / 16.8 | 32 % |
+| FP16, with tx, uniform samples (reference) | 17.63 (17.54–17.72) / 11.51 (11.39–11.65) | 33.3 / 24.1 | 14 % |
+| FP16, no tx, walk-shaped samples | 21.14 (21.04–21.24) / 20.41 (20.30–20.52) | 253.4 / 103.0 | 8 % |
+
+### GNN on-device cost, Jetson Orin 32 GB (2026-11-13)
+
+Setup: JetPack 7.2 (L4T R39.2.1), PyTorch 2.15.0 (CUDA 13.2), host install, `jetson_clocks`, 500 timed runs on real maps at 2 % samples after 50 warm-up runs. Power and RAM come from a `tegrastats` log covering the timed runs; peak RAM is for the whole Jetson, including the desktop.
+
+| GNN setting | Power mode | p50 / p99 ms | Maps/s | Power mean / max W | Energy per map J | Peak RAM GB |
+| --- | --- | --- | --- | --- | --- | --- |
+| FP16, no tx, uniform | MAXN | 10.6 / 11.8 | 94 | 24.4 / 25.0 | 0.26 | 5.3 |
+| FP32, no tx, uniform | MAXN | 8.9 / 11.1 | 110 | 27.3 / 28.4 | 0.25 | 5.2 |
+| FP16, no tx, walk | MAXN | 10.5 / 12.1 | 95 | 24.2 / 25.2 | 0.26 | 5.4 |
+| FP16, with tx, uniform | MAXN | 11.3 / 12.8 | 89 | 24.4 / 25.1 | 0.27 | 5.5 |
+| FP16, no tx, uniform | 30 W | 18.9 / 26.4 | 53 | 15.6 / 16.3 | 0.29 | 7.1 |
+| FP32, no tx, uniform | 30 W | 18.4 / 26.0 | 54 | 16.3 / 16.8 | 0.30 | 6.7 |
+| FP16, no tx, walk | 30 W | 15.2 / 23.6 | 62 | 14.4 / 15.4 | 0.23 | 7.2 |
+| FP16, with tx, uniform | 30 W | 19.0 / 26.2 | 53 | 15.3 / 16.3 | 0.29 | 7.3 |
+
+- **MAXN vs 30 W:** MAXN is about 1.8× faster with a much tighter tail (p99 under 13 ms in every setting). It draws more power, but energy per map is slightly lower because each map finishes sooner. 30 W is the lower-power option for battery operation and is still about 7× under the 200 ms budget at p99.
+- **FP32 vs FP16:** at MAXN, FP32 is faster than FP16 (8.9 vs 10.6 ms p50) with identical accuracy. The model is small (about 31 MB of GPU memory), so the cost of autocasting to half precision outweighs any gain. The ROS 2 node therefore runs the GNN in FP32 by default.
+- **Compared with the Orin Nano 8 GB** (14.8 ms p50 at 25 W, below): the Orin 32 GB at MAXN is about 1.4× faster in FP16 and 1.6× faster in FP32.
+
 ### GNN, Jetson Orin Nano 8 GB (2026-11-06)
 
-Setup: `GNN_no_tx.pth`, PyTorch FP16, emitter channel zeroed, 200 held-out test-split maps, uniform random samples, 25 W power mode with `jetson_clocks`. Errors are on unobserved, non-building pixels; CIs are 95 % bootstrap intervals over maps. Emitter error assumes 1 m per pixel.
+Setup: `GNN_no_tx.pth`, PyTorch FP16, emitter channel zeroed, 200 held-out test-split maps, uniform random samples, 25 W power mode with `jetson_clocks`. Errors are on unobserved, non-building pixels; CIs are 95 % bootstrap intervals over maps. **The emitter columns in this section and the next were computed before the map scale was corrected, assuming 1 m per pixel and a 5 m (5 px) hit radius.** Multiplying the errors by 3.52 gives meters; the accuracy section above has the emitter numbers at the correct scale.
 
-| Samples | RMSE dB (95 % CI) | Pixels within 6 dB | Emitter error m | Emitter within 5 m |
+| Samples | RMSE dB (95 % CI) | Pixels within 6 dB | Emitter error px | Emitter within 5 px |
 | --- | --- | --- | --- | --- |
 | 0.5 % | 19.25 (19.16–19.34) | 23 % | 10.0 | 26 % |
 | 1 % | 17.54 (17.44–17.63) | 34 % | 7.4 | 31 % |
@@ -168,11 +211,11 @@ Setup: `GNN_no_tx.pth`, PyTorch FP16, emitter channel zeroed, 200 held-out test-
 | Peak system RAM (whole Jetson) | 3.6 GB of 8 GB |
 | Model GPU memory | 31 MB |
 
-The GNN runs about 10× under the 200 ms budget. Map quality improves steadily with sampling density, and the emitter is located within 5 m in 71 % of maps at 10 % samples.
+The GNN runs about 10× under the 200 ms budget. Map quality improves steadily with sampling density, and the emitter is located within 5 px in 71 % of maps at 10 % samples.
 
 ### GNN, other settings (same 200 maps and hardware, 2026-11-06)
 
-| GNN setting | RMSE dB @ 1 % / 5 % (95 % CI) | Emitter error m @ 1 % / 5 % | Emitter within 5 m @ 10 % | p50 / p99 ms | Power mean / max W | Peak RAM GB |
+| GNN setting | RMSE dB @ 1 % / 5 % (95 % CI) | Emitter error px @ 1 % / 5 % | Emitter within 5 px @ 10 % | p50 / p99 ms | Power mean / max W | Peak RAM GB |
 | --- | --- | --- | --- | --- | --- | --- |
 | FP16, no tx, uniform samples (main run above) | 17.54 (17.44–17.63) / 11.45 (11.33–11.58) | 7.4 / 4.7 | 71 % | 14.8 / 20.9 | 7.9 / 12.0 | 3.6 |
 | FP32, no tx, uniform samples | 17.54 (17.44–17.63) / 11.45 (11.33–11.58) | 7.5 / 4.8 | 69 % | 14.6 / 17.9 | 9.2 / 13.7 | 3.4 |
