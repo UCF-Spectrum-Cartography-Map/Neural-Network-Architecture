@@ -17,7 +17,7 @@ ROS 2 package that runs the team's ViG GNN (`GNN_no_tx.pth`) as a node: RF sampl
 
 ## Build
 
-The package needs ROS 2 (Humble on Ubuntu 22.04, Jazzy on Ubuntu 24.04), numpy, pandas and pyarrow, plus the library for the chosen backend: PyTorch for `.pth`, onnxruntime for `.onnx`, or TensorRT and CUDA PyTorch for `.engine`.
+The package needs ROS 2 (Humble on Ubuntu 22.04, Jazzy on Ubuntu 24.04), numpy, pandas and pyarrow, plus the library for the chosen backend: PyTorch for `.pth`, onnxruntime for `.onnx`, or TensorRT and CUDA PyTorch for `.engine`. Installing these on the Jetson is covered in `benchmarks/README_Jetson_Setup.md`.
 
 ```bash
 mkdir -p ~/ros2_ws/src && cp -r gnn_reconstruction ~/ros2_ws/src/
