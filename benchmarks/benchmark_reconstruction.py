@@ -8,7 +8,7 @@ sampling densities, with the SAME saved sample masks every run, and writes:
   <out>/summary_<tag>.csv     per density: mean + 95% bootstrap CI
   <out>/run_info_<tag>.json   device, JetPack, torch version, settings, latency p50/p95/p99, RAM, power
   <out>/masks/*.npz           the sample masks (reused on the next run, so runs are comparable)
-  <out>/tegrastats.log        power/RAM log while the timing runs (Jetson only)
+  <out>/tegrastats_<tag>.log  power/RAM log while the timing runs (Jetson only)
 <tag> is e.g. fp16_notx_uniform.
 
 Metrics are computed on pixels the model had to infer: not sampled, and (by default) not
@@ -250,10 +250,10 @@ def forward(model, x, fp16):
     return model(x)
 
 
-def start_tegrastats(out_dir):
+def start_tegrastats(log_path):
     if not shutil.which("tegrastats"):
         return None
-    log = open(os.path.join(out_dir, "tegrastats.log"), "w")
+    log = open(log_path, "w")
     return subprocess.Popen(["tegrastats", "--interval", "100"], stdout=log, stderr=subprocess.DEVNULL), log
 
 
@@ -265,10 +265,11 @@ def parse_tegrastats(path):
         m = re.search(r"RAM (\d+)/(\d+)MB", line)
         if m:
             ram.append(int(m.group(1)))
-        # Orin: 'VDD_IN 5432mW/5100mW' (instant/avg); fall back to summing rails if absent
-        m = re.search(r"VDD_IN (\d+)mW", line)
-        if m:
-            power.append(int(m.group(1)) / 1000)
+        # Orin Nano/NX: 'VDD_IN 5432mW/5100mW' (instant/avg). AGX Orin has no VDD_IN: sum its rails.
+        rails = {k: int(v) for k, v in re.findall(r"([A-Z][A-Z0-9_]+) (\d+)mW", line)}
+        p = rails.get("VDD_IN") or sum(rails.get(k, 0) for k in ("VDD_GPU_SOC", "VDD_CPU_CV", "VIN_SYS_5V0"))
+        if p:
+            power.append(p / 1000)
     return {"ram_used_peak_MB": max(ram) if ram else None,
             "power_mean_W": float(np.mean(power)) if power else None,
             "power_max_W": float(np.max(power)) if power else None}
@@ -332,8 +333,8 @@ def main():
     ap.add_argument("--use-tx", action="store_true", help="feed tx_origin (default: zeroed, like the real hunt)")
     ap.add_argument("--no-exclude-buildings", dest="exclude_buildings", action="store_false",
                     help="also score building pixels")
-    ap.add_argument("--m-per-px", type=float, default=1.0, help="map resolution, meters per pixel")
-    ap.add_argument("--hit-radius-m", type=float, default=5.0, help="emitter counts as found within this distance")
+    ap.add_argument("--m-per-px", type=float, default=3.52, help="map resolution, meters per pixel (UCF dataset maps: 900 m / 256 px)")
+    ap.add_argument("--hit-radius-m", type=float, default=10.56, help="emitter counts as found within this distance (default 3 px at 3.52 m/px)")
     ap.add_argument("--max-files", type=int, default=None)
     ap.add_argument("--fp16", action="store_true", help="autocast fp16 on CUDA")
     ap.add_argument("--engine", default=None, help="score a TensorRT .engine instead of --weights (precision is set at build time)")
@@ -386,7 +387,8 @@ def main():
     for j in range(args.warmup):
         forward(model, xs[j % len(xs)], args.fp16)
     sync(device)
-    teg = start_tegrastats(args.out_dir)
+    teg_log = os.path.join(args.out_dir, f"tegrastats_{tag}.log")
+    teg = start_tegrastats(teg_log)
     times = []
     for j in range(args.timed_iters):
         x = xs[j % len(xs)]
@@ -403,7 +405,7 @@ def main():
     if device.type == "cuda":
         lat["torch_gpu_peak_MB"] = torch.cuda.max_memory_allocated() / 2**20
     if teg:
-        lat.update(parse_tegrastats(os.path.join(args.out_dir, "tegrastats.log")))
+        lat.update(parse_tegrastats(teg_log))
         if lat.get("power_mean_W"):
             lat["energy_mJ_per_map"] = lat["power_mean_W"] * lat["latency_ms_mean"]
 
