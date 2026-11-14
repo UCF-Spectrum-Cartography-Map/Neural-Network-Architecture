@@ -1,0 +1,25 @@
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# ROS 2 / colcon build output
+build/
+install/
+log/
+
+# Benchmark and replay outputs that are large or regenerated
+benchmarks/gnn_bench*/
+benchmarks/*.log
+**/masks/
+**/per_sample_*.csv
+**/tegrastats*.log
+
+# Local data and archives
+data/test_split/
+*.tar.gz
+*.zip
+
+# OS / editor files
+.DS_Store
+.vscode/
