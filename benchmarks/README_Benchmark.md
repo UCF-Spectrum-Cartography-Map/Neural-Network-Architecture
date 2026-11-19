@@ -140,13 +140,13 @@ Proposed budgets (pending agreement with the mentor):
 | --- | --- |
 | YOLO26n end to end | ≥ 15 FPS, p99 ≤ 100 ms |
 | GNN map update | p99 ≤ 200 ms |
-| Whole stack RAM on the Orin Nano 8 GB | ≤ 6 GB (no longer binding on the Orin 32 GB) |
+| Whole stack RAM on the Orin Nano 8 GB | ≤ 6 GB (no longer binding on the Orin 64 GB) |
 
 ## Results
 
 ### GNN accuracy (200 held-out test-split maps)
 
-Setup: `GNN_no_tx.pth`, emitter channel zeroed, uniform random samples. Errors are on unobserved, non-building pixels; CIs are 95 % bootstrap intervals over maps. Maps are 3.52 m per pixel (900 m in 256 px), and an emitter estimate within 3 px (10.56 m) counts as a hit. Accuracy is the same on every device and power mode tested (Orin Nano 8 GB and Orin 32 GB, FP16 and FP32, within 0.1 dB); the table is from the Orin 32 GB FP16 run on 2026-11-13.
+Setup: `GNN_no_tx.pth`, emitter channel zeroed, uniform random samples. Errors are on unobserved, non-building pixels; CIs are 95 % bootstrap intervals over maps. Maps are 3.52 m per pixel (900 m in 256 px), and an emitter estimate within 3 px (10.56 m) counts as a hit. Accuracy is the same on every device and power mode tested (Orin Nano 8 GB and Orin 64 GB, FP16 and FP32, within 0.1 dB); the table is from the Orin 64 GB FP16 run on 2026-11-13.
 
 | Samples | RMSE dB (95 % CI) | Pixels within 6 dB | Emitter error m | Emitter within 10.56 m |
 | --- | --- | --- | --- | --- |
@@ -165,7 +165,7 @@ Other settings (same maps):
 | FP16, with tx, uniform samples (reference) | 17.63 (17.54–17.72) / 11.51 (11.39–11.65) | 33.3 / 24.1 | 14 % |
 | FP16, no tx, walk-shaped samples | 21.14 (21.04–21.24) / 20.41 (20.30–20.52) | 253.4 / 103.0 | 8 % |
 
-### GNN on-device cost, Jetson Orin 32 GB (2026-11-13)
+### GNN on-device cost, Jetson Orin 64 GB (2026-11-13)
 
 Setup: JetPack 7.2 (L4T R39.2.1), PyTorch 2.15.0 (CUDA 13.2), host install, `jetson_clocks`, 500 timed runs on real maps at 2 % samples after 50 warm-up runs. Power and RAM come from a `tegrastats` log covering the timed runs; peak RAM is for the whole Jetson, including the desktop.
 
@@ -182,7 +182,7 @@ Setup: JetPack 7.2 (L4T R39.2.1), PyTorch 2.15.0 (CUDA 13.2), host install, `jet
 
 - **MAXN vs 30 W:** MAXN is about 1.8× faster with a much tighter tail (p99 under 13 ms in every setting). It draws more power, but energy per map is slightly lower because each map finishes sooner. 30 W is the lower-power option for battery operation and is still about 7× under the 200 ms budget at p99.
 - **FP32 vs FP16:** at MAXN, FP32 is faster than FP16 (8.9 vs 10.6 ms p50) with identical accuracy. The model is small (about 31 MB of GPU memory), so the cost of autocasting to half precision outweighs any gain. The ROS 2 node therefore runs the GNN in FP32 by default.
-- **Compared with the Orin Nano 8 GB** (14.8 ms p50 at 25 W, below): the Orin 32 GB at MAXN is about 1.4× faster in FP16 and 1.6× faster in FP32.
+- **Compared with the Orin Nano 8 GB** (14.8 ms p50 at 25 W, below): the Orin 64 GB at MAXN is about 1.4× faster in FP16 and 1.6× faster in FP32.
 
 ### GNN, Jetson Orin Nano 8 GB (2026-11-06)
 

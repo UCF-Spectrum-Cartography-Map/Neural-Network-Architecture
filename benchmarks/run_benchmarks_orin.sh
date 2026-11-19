@@ -3,11 +3,11 @@
 # PyTorch installed by pip: no Docker, no jetson-containers (those images do not run on JetPack 7).
 # 4 runs: FP16, FP32, FP16 with walk-shaped samples, FP16 with tx. Usage:
 #   bash ~/nna/benchmarks/run_benchmarks_orin.sh
-# Results go to ~/nna/benchmarks/gnn_bench_orin32_<MMDD>/ (summary_*.csv, per_sample_*.csv,
+# Results go to ~/nna/benchmarks/gnn_bench_orin64_<MMDD>/ (summary_*.csv, per_sample_*.csv,
 # run_info_*.json, tegrastats_*.log, power_summary.txt).
 set -euo pipefail
 NNA=~/nna
-OUT=benchmarks/gnn_bench_orin32_$(date +%m%d)
+OUT=benchmarks/gnn_bench_orin64_$(date +%m%d)
 cd "$NNA"
 TEST_DIR=$(dirname "$(find data/test_split -name '*.parquet' | head -1)")
 if [ "$TEST_DIR" = "." ]; then echo "No .parquet files under ~/nna/data/test_split - unzip test_static.zip there first."; exit 1; fi

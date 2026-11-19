@@ -56,7 +56,7 @@ The output is normalized the same way, and the node converts it back to dB. A re
 | --- | --- | --- |
 | `backend` | `torch` | `torch` (.pth), `onnx` (.onnx, onnxruntime) or `tensorrt` (.engine built on this Jetson) |
 | `model_path` | (required) | weights file for the chosen backend |
-| `fp16` | `false` | half precision for the torch backend on GPU (FP32 benchmarked faster on the Orin 32GB at MAXN: 8.9 vs 10.6 ms) |
+| `fp16` | `false` | half precision for the torch backend on GPU (FP32 benchmarked faster on the Orin 64GB at MAXN: 8.9 vs 10.6 ms) |
 | `building_mask_file` | empty | map `.parquet` (uses its `building_mask` column) or `.npy`; empty = no buildings |
 | `origin_x`, `origin_y` | 0.0 | map-frame position of the grid corner (m) |
 | `m_per_px` | 3.52 | pixel size (m); the UCF dataset maps cover 900 m in 256 px |

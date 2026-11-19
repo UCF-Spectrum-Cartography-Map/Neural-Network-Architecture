@@ -11,7 +11,7 @@ Related documents, each covering one thing:
 | [ros2/gnn_reconstruction/README.md](../ros2/gnn_reconstruction/README.md) | Building and running the ROS 2 GNN + Kalman tracker nodes, replay figures |
 | [ros2/gnn_reconstruction/INTERFACE.md](../ros2/gnn_reconstruction/INTERFACE.md) | ROS topics and parameters, for teammates connecting to the nodes |
 
-The main board is the **Jetson Orin 32 GB with JetPack 7.2** (sections 1 to 4). The older Orin Nano 8 GB with JetPack 6 needs a different setup, kept in section 6 because some results in README_Benchmark.md were measured on it. `cat /etc/nv_tegra_release` shows which JetPack a board has (R39 = JetPack 7, R36 = JetPack 6).
+The main board is the **Jetson Orin 64 GB with JetPack 7.2** (sections 1 to 4). The older Orin Nano 8 GB with JetPack 6 needs a different setup, kept in section 6 because some results in README_Benchmark.md were measured on it. `cat /etc/nv_tegra_release` shows which JetPack a board has (R39 = JetPack 7, R36 = JetPack 6).
 
 ## 1. Code and test maps
 
@@ -64,10 +64,10 @@ Building and running the nodes continues in [ros2/gnn_reconstruction/README.md](
 
 ```bash
 sudo nvpmodel -m 0                         # MAXN; any mode works, it is recorded either way
-bash ~/nna/benchmarks/run_benchmarks_orin.sh 2>&1 | tee ~/nna/benchmarks/orin32_run.log
+bash ~/nna/benchmarks/run_benchmarks_orin.sh 2>&1 | tee ~/nna/benchmarks/orin64_run.log
 ```
 
-Results go to `benchmarks/gnn_bench_orin32_<MMDD>/` (`summary_*.csv`, `per_sample_*.csv`, `run_info_*.json`, `tegrastats_*.log`, `power_summary.txt`). A second run on the same day writes to the same folder, so earlier results are renamed first. Individual runs and all options of `benchmark_reconstruction.py` are described in [README_Benchmark.md](README_Benchmark.md).
+Results go to `benchmarks/gnn_bench_orin64_<MMDD>/` (`summary_*.csv`, `per_sample_*.csv`, `run_info_*.json`, `tegrastats_*.log`, `power_summary.txt`). A second run on the same day writes to the same folder, so earlier results are renamed first. Individual runs and all options of `benchmark_reconstruction.py` are described in [README_Benchmark.md](README_Benchmark.md).
 
 TensorRT is not set up on this board, since PyTorch is faster for this model (see README_Benchmark.md).
 

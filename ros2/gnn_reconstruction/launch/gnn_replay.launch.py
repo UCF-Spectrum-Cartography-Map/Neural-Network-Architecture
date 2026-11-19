@@ -22,7 +22,7 @@ def generate_launch_description():
         DeclareLaunchArgument("m_per_px", default_value="3.52"),
         DeclareLaunchArgument("update_hz", default_value="2.0"),
         DeclareLaunchArgument("fp16", default_value="false",
-                              description="half precision (torch backend); FP32 was faster on the Orin 32GB"),
+                              description="half precision (torch backend); FP32 was faster on the Orin 64GB"),
         DeclareLaunchArgument("tracker", default_value="true", description="also run the Kalman tracker node"),
         DeclareLaunchArgument("accel_std", default_value="0.1", description="tracker random acceleration (m/s^2)"),
         DeclareLaunchArgument("log_csv", default_value="",
