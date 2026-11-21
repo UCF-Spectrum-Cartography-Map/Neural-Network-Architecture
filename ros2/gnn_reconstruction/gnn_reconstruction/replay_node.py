@@ -5,6 +5,10 @@ and scores every map the GNN node publishes against the ground truth (same metri
 offline benchmark: RMSE on unobserved, non-building pixels, and emitter error). If the tracker
 node runs, it also scores tracker/emitter, so raw GNN and Kalman errors can be compared.
 
+The map file is in the dataset layout (row 0 = highest y). Samples and the true emitter are
+published at their real map-frame positions, and the GNN node's map (grid layout, row 0 =
+lowest y) is flipped back to the file's layout before it is scored.
+
 Everything it scores is also written to a CSV log (parameter log_csv, default
 ~/replay_logs/replay_<date>_<time>.csv, plus a .json with the map and emitter info), which
 plot_replay turns into a PNG figure: `ros2 run gnn_reconstruction plot_replay <csv>`.
@@ -22,7 +26,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 from geometry_msgs.msg import PointStamped
 from std_msgs.msg import Float32MultiArray
 
-from .core import H, W
+from .core import H, W, dataset_to_grid
 
 
 class ReplayNode(Node):
@@ -47,7 +51,7 @@ class ReplayNode(Node):
         self.pos = self.free[self.rng.integers(len(self.free))]
         self.sampled = np.zeros((H, W), bool)
         self.hit_m = p("hit_radius_m", 10.56).value
-        self.tx_xy = (self.origin_x + (self.tx_rc[1] + 0.5) * self.res, self.origin_y + (self.tx_rc[0] + 0.5) * self.res)
+        self.tx_xy = self.xy(*self.tx_rc)
         self.raw_err, self.kf_err = [], []
         self.coverage_pct = 0.0
         self.t0 = time.monotonic()
@@ -58,6 +62,7 @@ class ReplayNode(Node):
             os.makedirs(os.path.dirname(os.path.abspath(log_csv)), exist_ok=True)
             json.dump({"map_file": os.path.abspath(map_file), "mode": self.mode, "m_per_px": self.res,
                        "origin_x": self.origin_x, "origin_y": self.origin_y, "hit_radius_m": self.hit_m,
+                       "y_up": True,  # x_m / y_m in the log are real map-frame positions (plot_replay flips the file to match)
                        "tx_xy": self.tx_xy, "tx_rc": [int(v) for v in self.tx_rc]},
                       open(os.path.splitext(log_csv)[0] + ".json", "w"), indent=2)
             self.log_file = open(log_csv, "w", newline="")
@@ -74,6 +79,10 @@ class ReplayNode(Node):
         self.create_subscription(PointStamped, "tracker/emitter", self.on_tracker, 10)
         self.timer = self.create_timer(1.0 / self.rate, self.step)
         self.get_logger().info(f"replaying {map_file} ({self.mode}), true emitter at px {tuple(map(int, self.tx_rc))}")
+
+    def xy(self, r, c):
+        """Map-frame center (m) of the file's pixel (r, c). File row 0 is the highest y."""
+        return (self.origin_x + (int(c) + 0.5) * self.res, self.origin_y + (H - 1 - int(r) + 0.5) * self.res)
 
     def next_pixel(self):
         if self.mode == "uniform":
@@ -94,17 +103,18 @@ class ReplayNode(Node):
         r, c = self.next_pixel()
         self.sampled[r, c] = True
         self.coverage_pct = self.sampled.mean() * 100
-        self._write("sample", (c + 0.5) * self.res + self.origin_x, (r + 0.5) * self.res + self.origin_y)
+        x, y = self.xy(r, c)
+        self._write("sample", x, y)
         msg = PointStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "map"
-        msg.point.x = self.origin_x + (c + 0.5) * self.res
-        msg.point.y = self.origin_y + (r + 0.5) * self.res
+        msg.point.x = x
+        msg.point.y = y
         msg.point.z = float(self.gt[r, c])
         self.pub.publish(msg)
 
     def on_map(self, msg):
-        pred = np.asarray(msg.data, np.float32).reshape(H, W)
+        pred = dataset_to_grid(np.asarray(msg.data, np.float32).reshape(H, W))  # grid layout -> file layout
         score = (~self.sampled) & (self.env < 0.5)
         rmse = float(np.sqrt(np.mean((pred[score] - self.gt[score]) ** 2)))
         est = np.unravel_index(int(np.argmin(np.where(self.env > 0.5, np.inf, pred))), pred.shape)

@@ -12,16 +12,27 @@ H = W = 256
 MIN_DB, MAX_DB = 30.0, 140.0  # must match training normalization
 
 
+# ---------------------------------------------------------------- row order
+def dataset_to_grid(a):
+    """Flip the rows of a (..., H, W) array between the dataset layout and the grid layout.
+    The same call converts in both directions.
+
+    Map .parquet files store row 0 at the HIGHEST y: the generator applies np.flipud so the maps
+    read like images. The grid in this package has row 0 at the LOWEST y (nav_msgs/OccupancyGrid).
+    Checked against the UCF scene meshes: building footprints line up only with the rows flipped."""
+    return np.ascontiguousarray(np.asarray(a)[..., ::-1, :])
+
+
 # ---------------------------------------------------------------- building mask
 def load_building_mask(path):
-    """Building mask (H x W, 1 = building) from a map .parquet (building_mask column) or a .npy file."""
+    """Building mask (H x W, 1 = building) in the grid layout (row 0 = lowest y).
+    A map .parquet (building_mask column) is in the dataset layout and is flipped here.
+    A .npy file must already be in the grid layout and is used as it is."""
     if path.endswith(".npy"):
-        env = np.load(path).astype(np.float32)
-    else:
-        import pandas as pd
-        row = pd.read_parquet(path, engine="pyarrow").iloc[0]
-        env = np.asarray(row["building_mask"], dtype=np.float32)
-    return env.reshape(H, W)
+        return np.load(path).astype(np.float32).reshape(H, W)
+    import pandas as pd
+    row = pd.read_parquet(path, engine="pyarrow").iloc[0]
+    return dataset_to_grid(np.asarray(row["building_mask"], dtype=np.float32).reshape(H, W))
 
 
 # ---------------------------------------------------------------- samples -> grid
@@ -181,7 +192,11 @@ class Reconstructor:
 
     def run(self):
         t0 = time.perf_counter()
-        pl_db = to_db(self.backend(build_input(self.env, self.grid)))
+        # The model was trained on dataset files (row 0 = highest y), so it gets its input in that
+        # row order and its map is flipped back. Everything outside these two lines (samples,
+        # building mask, published map, emitter estimate) is in the grid layout.
+        x = dataset_to_grid(build_input(self.env, self.grid))
+        pl_db = dataset_to_grid(to_db(self.backend(x)))
         ms = (time.perf_counter() - t0) * 1000
         row, col = estimate_emitter(pl_db, self.env)
         return pl_db, (row, col), self.grid.to_xy(row, col), ms
