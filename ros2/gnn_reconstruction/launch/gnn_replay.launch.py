@@ -20,6 +20,10 @@ def generate_launch_description():
         DeclareLaunchArgument("map_file", description="test-split .parquet map to replay"),
         DeclareLaunchArgument("mode", default_value="walk", description="walk | uniform"),
         DeclareLaunchArgument("m_per_px", default_value="3.52"),
+        DeclareLaunchArgument("origin_x", default_value="-450.0",
+                              description="map-frame x of the grid's lower-left corner (m); default = UCF scene"),
+        DeclareLaunchArgument("origin_y", default_value="-447.9",
+                              description="map-frame y of the grid's lower-left corner (m); default = UCF scene"),
         DeclareLaunchArgument("update_hz", default_value="2.0"),
         DeclareLaunchArgument("fp16", default_value="false",
                               description="half precision (torch backend); FP32 was faster on the Orin 64GB"),
@@ -32,11 +36,11 @@ def generate_launch_description():
     gnn = Node(package="gnn_reconstruction", executable="gnn_node", output="screen", parameters=[{
         "backend": arg("backend"), "model_path": arg("model_path"),
         "building_mask_file": arg("map_file"), "m_per_px": arg("m_per_px"), "update_hz": arg("update_hz"),
-        "fp16": arg("fp16"),
+        "fp16": arg("fp16"), "origin_x": arg("origin_x"), "origin_y": arg("origin_y"),
     }])
     replay = Node(package="gnn_reconstruction", executable="replay_node", output="screen", parameters=[{
         "map_file": arg("map_file"), "mode": arg("mode"), "m_per_px": arg("m_per_px"),
-        "log_csv": arg("log_csv"),
+        "log_csv": arg("log_csv"), "origin_x": arg("origin_x"), "origin_y": arg("origin_y"),
     }])
     tracker = Node(package="gnn_reconstruction", executable="tracker_node", output="screen",
                    condition=IfCondition(arg("tracker")), parameters=[{

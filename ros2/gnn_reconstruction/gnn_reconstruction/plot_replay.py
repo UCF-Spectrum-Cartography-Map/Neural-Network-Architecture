@@ -53,6 +53,8 @@ def main():
     row = pd.read_parquet(meta["map_file"], engine="pyarrow").iloc[0]
     env = np.asarray(row["building_mask"], np.float32).reshape(H, W)
     gt = np.asarray(row["path_loss"], np.float32).reshape(H, W)
+    if meta.get("y_up"):  # log positions are real map-frame positions; the file stores row 0 at the highest y
+        env, gt = env[::-1], gt[::-1]
 
     samples = log[log.kind == "sample"]
     raw, kf = log[log.kind == "raw"], log[log.kind == "kalman"]

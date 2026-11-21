@@ -32,6 +32,8 @@ MAP=$(find ~/nna/data/test_split -name '*.parquet' | head -1)
 ros2 launch gnn_reconstruction gnn_replay.launch.py model_path:=$HOME/nna/benchmarks/GNN_no_tx.pth map_file:=$MAP
 ```
 
+The launch file places the grid at the UCF scene's lower-left corner (`origin_x:=-450.0 origin_y:=-447.9`), so positions are in the scene's own frame. The map file stores row 0 at the highest y; the node flips its building mask into the grid layout when it loads it, and the replay node publishes each sample at its real position (details in `INTERFACE.md`).
+
 The launch file also starts the Kalman tracker (`tracker:=false` turns it off). The replay node prints the RMSE (on unobserved, non-building pixels) and the emitter error for every map the GNN node publishes. These should match the offline benchmark for the same sample density and sample shape: walk samples (default) give about 20 dB, and `mode:=uniform` gives about 11 dB at 5 %. In a second terminal:
 
 ```bash

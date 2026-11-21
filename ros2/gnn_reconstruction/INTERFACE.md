@@ -8,7 +8,13 @@ This file is the contract between the GNN node and the parts that feed it or use
 - The reconstruction grid is 256 × 256 pixels. Pixel (row, col) covers
   `x ∈ [origin_x + col·m_per_px, +m_per_px)` and `y ∈ [origin_y + row·m_per_px, +m_per_px)`.
   This is the same layout as `nav_msgs/OccupancyGrid`: row 0 is the lowest y, column 0 the lowest x.
-- `origin_x`, `origin_y` and `m_per_px` must match the building mask the node is given.
+- `origin_x`, `origin_y` and `m_per_px` must match the building mask the node is given. For the UCF scene the
+  grid's lower-left corner is at `origin_x = -450.0`, `origin_y = -447.9` (the scene meshes span x −450 to 450 and
+  y −447.9 to 452.1); the replay launch file uses these by default, so the map frame is the scene's own frame.
+- **Dataset files are stored the other way up.** Map `.parquet` files have row 0 at the highest y (the generator
+  applies `np.flipud`). `core.dataset_to_grid()` flips between the two layouts. The node flips a `.parquet` building
+  mask when it loads it, and flips rows around the model call, because the model was trained on dataset files.
+  Topics, samples and the emitter estimate are always in the grid layout above.
 
 ## Inputs
 
@@ -50,6 +56,8 @@ The model gets a (1, 3, 256, 256) float32 tensor and returns (1, 1, 256, 256):
 
 The output is normalized the same way, and the node converts it back to dB. A replacement model (for example the upsampled GNN) keeps this contract, or adds a backend in `core.py` that converts to and from it.
 
+The tensor the model receives and returns is in the dataset layout (row 0 = highest y), the same as the training files. `Reconstructor.run()` does that flip, so a backend never has to.
+
 ## Parameters
 
 | Parameter | Default | Meaning |
@@ -57,8 +65,8 @@ The output is normalized the same way, and the node converts it back to dB. A re
 | `backend` | `torch` | `torch` (.pth), `onnx` (.onnx, onnxruntime) or `tensorrt` (.engine built on this Jetson) |
 | `model_path` | (required) | weights file for the chosen backend |
 | `fp16` | `false` | half precision for the torch backend on GPU (FP32 benchmarked faster on the Orin 64GB at MAXN: 8.9 vs 10.6 ms) |
-| `building_mask_file` | empty | map `.parquet` (uses its `building_mask` column) or `.npy`; empty = no buildings |
-| `origin_x`, `origin_y` | 0.0 | map-frame position of the grid corner (m) |
+| `building_mask_file` | empty | map `.parquet` (uses its `building_mask` column, flipped to the grid layout) or `.npy` (must already be in the grid layout); empty = no buildings |
+| `origin_x`, `origin_y` | 0.0 | map-frame position of the grid's lower-left corner (m); the replay launch file passes −450.0 and −447.9 for the UCF scene |
 | `m_per_px` | 3.52 | pixel size (m); the UCF dataset maps cover 900 m in 256 px |
 | `update_hz` | 2.0 | maximum map update rate |
 | `min_new_samples` | 5 | new samples needed before the next update |
